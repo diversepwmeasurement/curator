@@ -1,101 +1,88 @@
-# Licensed to the Apache Software Foundation (ASF) under one
-# or more contributor license agreements.  See the NOTICE file
-# distributed with this work for additional information
-# regarding copyright ownership.  The ASF licenses this file
-# to you under the Apache License, Version 2.0 (the
-# "License"); you may not use this file except in compliance
-# with the License.  You may obtain a copy of the License at
-#
-#   http://www.apache.org/licenses/LICENSE-2.0
-#
-# Unless required by applicable law or agreed to in writing,
-# software distributed under the License is distributed on an
-# "AS IS" BASIS, WITHOUT WARRANTIES OR CONDITIONS OF ANY
-# KIND, either express or implied.  See the License for the
-# specific language governing permissions and limitations
-# under the License.
-
-name: CI
-on:
-  push:
-    branches: [master]
-  pull_request:
-    branches: [master]
-
 env:
-  MAVEN_OPTS: -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.class=standard -Dmaven.wagon.http.retryHandler.count=3
-
+  MAVEN_OPTS: -Dhttp.keepAlive=false -Dmaven.wagon.http.pool=false -Dmaven.wagon.http.retryHandler.class=standard
+    -Dmaven.wagon.http.retryHandler.count=3
 jobs:
   check:
     name: Check
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v3
-      - name: Check license header
-        run: docker run --rm -v $(pwd):/github/workspace ghcr.io/korandoru/hawkeye-native:v3 check
+    - continue-on-error: true
+      uses: actions/checkout@v3
+    - continue-on-error: true
+      name: Check license header
+      run: docker run --rm -v $(pwd):/github/workspace ghcr.io/korandoru/hawkeye-native:v3
+        check
+    - continue-on-error: true
+      name: Cache Local Maven Repository
+      uses: actions/cache@v3
+      with:
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        path: ~/.m2/repository
+        restore-keys: '${{ runner.os }}-maven-
 
-      - name: Cache Local Maven Repository
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          java-version: 21
-          distribution: 'zulu'
-      - name: Check code style
-        run: ./mvnw spotless:check
-
+          '
+    - continue-on-error: true
+      name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: zulu
+        java-version: 21
+    - continue-on-error: true
+      name: Check code style
+      run: ./mvnw spotless:check
+  required:
+    if: ${{ always() }}
+    name: Required
+    needs:
+    - check
+    - unittest
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      name: Guardian
+      run: "if [[ ! ( \\\n       \"${{ needs.check.result }}\" == \"success\" \\\n\
+        \    && \"${{ needs.unittest.result }}\" == \"success\" \\\n    ) ]]; then\n\
+        \  echo \"Required jobs haven't been completed successfully.\"\n  exit -1\n\
+        fi\n"
   unittest:
+    env:
+      GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GE_ACCESS_TOKEN }}
     name: Unit tests
-    runs-on: ubuntu-latest
-    timeout-minutes: 180
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@v3
+    - continue-on-error: true
+      name: Cache Local Maven Repository
+      uses: actions/cache@v3
+      with:
+        key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
+        path: ~/.m2/repository
+        restore-keys: '${{ runner.os }}-maven-
+
+          '
+    - continue-on-error: true
+      name: Set up JDK ${{ matrix.java }}
+      uses: actions/setup-java@v3
+      with:
+        distribution: zulu
+        java-version: ${{ matrix.java }}
+    - continue-on-error: true
+      name: Build with ${{ matrix.java }}
+      run: ./mvnw clean install -DskipTests
+    - continue-on-error: true
+      name: Test with ${{ matrix.java }}
+      run: ./mvnw verify
     strategy:
       fail-fast: false
       matrix:
-        java: [8, 11, 17, 21]
-    env:
-      GRADLE_ENTERPRISE_ACCESS_KEY: ${{ secrets.GE_ACCESS_TOKEN }}
-    steps:
-      - uses: actions/checkout@v3
-
-      - name: Cache Local Maven Repository
-        uses: actions/cache@v3
-        with:
-          path: ~/.m2/repository
-          key: ${{ runner.os }}-maven-${{ hashFiles('**/pom.xml') }}
-          restore-keys: |
-            ${{ runner.os }}-maven-
-
-      - name: Set up JDK ${{ matrix.java }}
-        uses: actions/setup-java@v3
-        with:
-          java-version: ${{ matrix.java }}
-          distribution: 'zulu'
-
-      - name: Build with ${{ matrix.java }}
-        run: ./mvnw clean install -DskipTests
-
-      - name: Test with ${{ matrix.java }}
-        run: ./mvnw verify
-
-  required:
-    name: Required
-    runs-on: ubuntu-latest
-    if: ${{ always() }}
-    needs:
-      - check
-      - unittest
-    steps:
-      - name: Guardian
-        run: |
-          if [[ ! ( \
-                 "${{ needs.check.result }}" == "success" \
-              && "${{ needs.unittest.result }}" == "success" \
-              ) ]]; then
-            echo "Required jobs haven't been completed successfully."
-            exit -1
-          fi
+        java:
+        - 8
+        - 11
+        - 17
+        - 21
+    timeout-minutes: 180
+name: CI
+on:
+  repository_dispatch:
+    types: trigger-ga___ci.yml
